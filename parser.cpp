@@ -1,65 +1,40 @@
 #include "parser.h"
 #include "traceexception.h"
 #include <iostream>
-//#include <sstream>
 #include <cstdlib>
-#include <cstring>
+#include <cmath>
 #include <cctype>
 #include <errno.h>
-//#include <execinfo.h>
 
 using namespace std;
 
-/*inline string makebacktrace(){
-	void *callstack[128];
-	int nframes=backtrace(callstack,128);
-	char **tracelist=backtrace_symbols(callstack,nframes);
-	stringstream ss;
-	for(int i=0;i<nframes;i++)ss<<tracelist[i]<<'\n';
-	free(tracelist);
-	return ss.str();
-}*/
+#define NARGS(f,n) do {if(x.size()!=(n))throw ParseError(f " expects " #n "arguments");} while(0)
+const unordered_map<string,function<long double(vector<long double>)>> functions={
+	{"sin",   [](vector<long double> x){NARGS("sin",   1); return sin(x[0]);  }},
+	{"cos",   [](vector<long double> x){NARGS("cos",   1); return cos(x[0]);  }},
+	{"tan",   [](vector<long double> x){NARGS("tan",   1); return tan(x[0]);  }},
+	{"asin",  [](vector<long double> x){NARGS("asin",  1); return asin(x[0]); }},
+	{"acos",  [](vector<long double> x){NARGS("acos",  1); return acos(x[0]); }},
+	{"atan",  [](vector<long double> x){NARGS("atan",  1); return atan(x[0]); }},
+	{"arcsin",[](vector<long double> x){NARGS("arcsin",1); return asin(x[0]); }},
+	{"arccos",[](vector<long double> x){NARGS("arccos",1); return acos(x[0]); }},
+	{"arctan",[](vector<long double> x){NARGS("arctan",1); return atan(x[0]); }},
+	{"sqrt",  [](vector<long double> x){NARGS("sqrt",  1); return sqrt(x[0]); }},
+	{"exp",   [](vector<long double> x){NARGS("exp",   1); return exp(x[0]);  }},
+	{"log",   [](vector<long double> x){NARGS("log",   1); return log(x[0]);  }},
+	{"ln",    [](vector<long double> x){NARGS("ln",    1); return log(x[0]);  }},
+	{"log10", [](vector<long double> x){NARGS("log10", 1); return log10(x[0]);}},
+	{"log2",  [](vector<long double> x){NARGS("log2",  1); return log2(x[0]); }},
 
-ostream& operator<<(ostream &os,const ASTNode &node);
-
-ASTNode::ASTNode(asttype_t type)
-	:type(type){
-		//cout<<"Constructing ASTNode: "<<*this<<endl;
-		//cout<<makebacktrace()<<endl;
-	}
-ASTNode::ASTNode(asttype_t type,const vector<ASTNode*> &children)
-	:type(type),children(children){
-		//cout<<"Constructing ASTNode: "<<*this<<endl;
-		//cout<<makebacktrace()<<endl;
-	}
-ASTNode::ASTNode(asttype_t type,const string &value)
-	:type(type),value(value){
-		//cout<<"Constructing ASTNode: "<<*this<<endl;
-		//cout<<makebacktrace()<<endl;
-	}
-ASTNode::ASTNode(asttype_t type,const vector<ASTNode*> &children,const string &value)
-	:type(type),children(children),value(value){
-		//cout<<"Constructing ASTNode: "<<*this<<endl;
-		//cout<<makebacktrace()<<endl;
-	}
-ASTNode::~ASTNode(){
-	for(ASTNode *node : children)delete node;
-}
-
-ostream& operator<<(ostream &os,const ASTNode &node){
-	static int depth=-1;
-	const bool toplevel=depth==-1;
-	if(toplevel)depth=0;
-	os<<string(2*depth,' ')<<'('<<asttypestring.at(node.type)<<" \""<<node.value<<'"';
-	if(node.children.size()==0)return os<<')';
-	os<<'\n';
-	depth++;
-	for(ASTNode *n : node.children)os<<*n<<'\n';
-	depth--;
-	os<<string(2*depth,' ')<<')';
-	if(toplevel)depth=-1;
-	return os;
-}
+	{"pow",   [](vector<long double> x){NARGS("pow",   2); return pow(x[0],x[1]);     }},
+	{"logb",  [](vector<long double> x){NARGS("logb",  2); return log(x[0])/log(x[1]);}},
+};
+#undef NARGS
+const unordered_map<string,long double> constants={
+	{"PI",M_PI},
+	{"E",M_E},
+	{"PHI",(1+sqrt(5))/2},
+};
 
 
 ParseError::ParseError(const string &s)
@@ -256,13 +231,17 @@ void pushOperator(vector<ASTNode*> &nodelist,vector<string> &opstack,string op){
 		} catch(out_of_range){
 			throw ParseError("Invalid operator "+op+" encountered");
 		}
-		while(opstack.size()){
-			cerr<<__LINE__<<' '<<opstack.back()<<endl;
-			const int otherprec=precedence.at(opstack.back());
-			if(otherprec<prec||(otherprec==prec&&rightassoc.at(opstack.back()))){
-				break;
+		const int ar=arity.at(op);
+		if(ar!=1&&ar!=2)throw TraceException("Arity of 1 nor 2");
+		if(ar==2||(ar==1&&!rightassoc.at(op))){
+			while(opstack.size()){
+				// cerr<<__LINE__<<' '<<opstack.back()<<endl;
+				const int otherprec=precedence.at(opstack.back());
+				if(otherprec<prec||(otherprec==prec&&rightassoc.at(opstack.back()))){
+					break;
+				}
+				popOperator(nodelist,opstack);
 			}
-			popOperator(nodelist,opstack);
 		}
 		opstack.push_back(op);
 	}
@@ -313,11 +292,14 @@ ASTNode* parse(const vector<Token> &tokens){
 
 
 ASTNode* parseExpression(const string &expr){
-	return parse(tokenise(expr));
+	// return parse(tokenise(expr));
+	const vector<Token> tokens=tokenise(expr);
+	ASTNode *node=parse(tokens);
+	return node;
 }
 
 
-template <typename T>
+/*template <typename T>
 ostream& operator<<(ostream &os,const vector<T> &v){
 	if(v.size()==0)return os<<"[]";
 	os<<'['<<v[0];
@@ -341,4 +323,4 @@ int main(){
 		}
 		if(node)delete node;
 	}
-}
+}*/
