@@ -99,7 +99,7 @@ vector<Token> tokenise(const string &expr){
 			tokens.emplace_back(TT_NUMBER,expr.substr(i,endp-startp));
 			i+=endp-startp-1;
 			lastwasop=false;
-		} else if(strchr("+-*/%^(),",expr[i])!=nullptr){
+		} else if(strchr("+-*/^(),",expr[i])!=nullptr){
 			if(expr[i]=='-'&&lastwasop){
 				tokens.emplace_back(TT_NEGATIVE,"-");
 				lastwasop=true;
@@ -143,6 +143,9 @@ vector<Token> tokenise(const string &expr){
 			throw ParseError("Unrecognised token starting at "+expr.substr(i,5));
 		}
 	}
+	if(lastwasop){
+		throw ParseError("Abnormally terminated expression, truncated?");
+	}
 	return tokens;
 }
 
@@ -174,6 +177,7 @@ const unordered_map<string,int> arity={
 void popOperator(vector<ASTNode*> &nodelist,vector<string> &opstack){
 	if(opstack.size()==0)throw TraceException("Empty opstack in popOperator");
 	string op=opstack.back();
+	//cerr<<"Pop "<<op<<endl;
 	if(op=="[[function]]"){
 		throw ParseError("Function without argument list");
 	}
@@ -196,6 +200,7 @@ void popOperator(vector<ASTNode*> &nodelist,vector<string> &opstack){
 }
 
 void pushOperator(vector<ASTNode*> &nodelist,vector<string> &opstack,string op){
+	//cerr<<"Pushing "<<op<<endl;
 	if(op==")"){
 		while(true){
 			if(opstack.size()==0){
@@ -257,6 +262,7 @@ ASTNode* parse(const vector<Token> &tokens){
 	vector<string> opstack;
 	int i;
 	for(i=0;i<(int)tokens.size();i++){
+		//cerr<<"Handling token "<<tokens[i]<<endl;
 		switch(tokens[i].type){
 			case TT_CHAR:
 				nodelist.push_back(new ASTNode(AT_VARIABLE,tokens[i].value));
