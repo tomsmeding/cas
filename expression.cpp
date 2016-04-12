@@ -59,41 +59,63 @@ const int asttypeorder[]={
 	5, //APPLY
 };
 
+bool operator<(const ASTNode &a,const ASTNode &b){
+	if(a.type!=b.type){
+		return asttypeorder[a.type]<asttypeorder[b.type];
+	}
+	switch(a.type){
+		case AT_SUM:
+		case AT_PRODUCT:
+			return a.children.size()<b.children.size();
+
+		case AT_VARIABLE:
+			if(a.value.size()!=b.value.size()){
+				return a.value.size()<b.value.size();
+			}
+			return a.value<b.value;
+
+		case AT_NUMBER:
+			return strtold(a.value.data(),nullptr)<strtold(b.value.data(),nullptr);
+
+		case AT_NEGATIVE:
+		case AT_RECIPROCAL:
+			return *a.children[0]<*b.children[0];
+
+		case AT_APPLY:
+			return a.value<b.value; //or something
+
+		default:
+			return false; //equal?
+	}
+}
+
+bool operator==(const ASTNode &a,const ASTNode &b){
+	if(a.type!=b.type)return false;
+	if(a.value!=b.value)return false;
+	if(a.children.size()!=b.children.size())return false;
+	size_t i,j;
+	//a \subseteq b
+	for(i=0;i<a.children.size();i++){
+		for(j=0;j<b.children.size();j++){
+			if(*a.children[i]==*b.children[i])break;
+		}
+		if(j==b.children.size())return false;
+	}
+	//b \subseteq a
+	for(i=0;i<b.children.size();i++){
+		for(j=0;j<a.children.size();j++){
+			if(*a.children[i]==*b.children[i])break;
+		}
+		if(j==b.children.size())return false;
+	}
+	return true;
+}
+
 namespace std {
 	template <>
 	struct less<ASTNode*>{
-		static bool compare(const ASTNode *a,const ASTNode *b){
-			if(a->type!=b->type){
-				return asttypeorder[a->type]<asttypeorder[b->type];
-			}
-			switch(a->type){
-				case AT_SUM:
-				case AT_PRODUCT:
-					return a->children.size()<b->children.size();
-
-				case AT_VARIABLE:
-					if(a->value.size()!=b->value.size()){
-						return a->value.size()<b->value.size();
-					}
-					return a->value<b->value;
-
-				case AT_NUMBER:
-					return strtold(a->value.data(),nullptr)<strtold(b->value.data(),nullptr);
-
-				case AT_NEGATIVE:
-				case AT_RECIPROCAL:
-					return less<ASTNode*>::compare(a->children[0],b->children[0]);
-
-				case AT_APPLY:
-					return a->value<b->value; //or something
-
-				default:
-					return false; //equal?
-			}
-		}
-
 		bool operator()(const ASTNode *a,const ASTNode *b) const {
-			return less<ASTNode*>::compare(a,b);
+			return *a<*b;
 		}
 	};
 }
