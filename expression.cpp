@@ -98,42 +98,14 @@ namespace std {
 	};
 }
 
-bool cleanupTree(ASTNode *node){
-	bool changed=false;
+void cleanupTree(ASTNode *node){
 	switch(node->type){
 		case AT_SUM:
-		case AT_PRODUCT: {
-			for(size_t i=0;i<node->children.size();i++){
-				if(i>0&&less<ASTNode*>::compare(node->children[i],node->children[i-1])){
-					//watch the less call! we're checking whether ch[i-1] > ch[i]
-					changed=true; //sort will change it, since they are in the wrong order
-				}
-				ASTNode *child=node->children[i];
-				changed=cleanupTree(child)||changed;
-				if(child->type==node->type){
-					node->children.erase(node->children.begin()+i);
-					node->children.insert(
-						node->children.end(),
-						child->children.begin(),
-						child->children.end()
-					);
-					child->children.clear();
-					delete child;
-					changed=true;
-				}
-			}
-			if(node->children.size()==1){
-				ASTNode *child=node->children[0];
-				node->type=child->type;
-				node->value=move(child->value);
-				node->children=move(child->children);
-				delete child;
-				changed=true;
-			} else {
+		case AT_PRODUCT:
+			if(node->children.size()>1){
 				sort(node->children.begin(),node->children.end(),less<ASTNode*>());
 			}
 			break;
-		}
 
 		case AT_VARIABLE:
 		case AT_NUMBER:
@@ -143,14 +115,13 @@ bool cleanupTree(ASTNode *node){
 		case AT_RECIPROCAL:
 		case AT_APPLY:
 			for(ASTNode *child : node->children){
-				changed=cleanupTree(child)||changed;
+				cleanupTree(child);
 			}
 			break;
 
 		default:
 			throw TraceException("Unexpected node type "+to_string(node->type)+" in "+__func__);
 	}
-	return changed;
 }
 
 
@@ -164,6 +135,18 @@ bool simplifyTree(ASTNode *node){
 				ASTNode *child=node->children[i];
 				changed=simplifyTree(child)||changed;
 				if(child->type==AT_NUMBER)nfound++;
+				else if(child->type==node->type){
+					node->children.erase(node->children.begin()+i);
+					node->children.insert(
+						node->children.end(),
+						child->children.begin(),
+						child->children.end()
+					);
+					child->children.clear();
+					delete child;
+					changed=true;
+					i--;
+				}
 			}
 			if(nfound>1){
 				long double number=node->type==AT_PRODUCT;
@@ -182,6 +165,15 @@ bool simplifyTree(ASTNode *node){
 				}
 				node->children.push_back(new ASTNode(AT_NUMBER,convertstring(number)));
 				changed=true;
+			}
+			if(node->children.size()==1){
+				ASTNode *child=node->children[0];
+				node->type=child->type;
+				node->value=move(child->value);
+				node->children=move(child->children);
+				delete child;
+				changed=true;
+				break;
 			}
 			break;
 		}
@@ -205,7 +197,7 @@ bool simplifyTree(ASTNode *node){
 			changed=simplifyTree(node->children[0])||changed;
 			if(node->children[0]->type==AT_NUMBER){
 				node->type=AT_NUMBER;
-				node->value=1/strtold(node->children[0]->value.data(),nullptr);
+				node->value=to_string(1/strtold(node->children[0]->value.data(),nullptr));
 				delete node->children[0];
 				node->children.clear();
 				changed=true;

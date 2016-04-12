@@ -152,6 +152,7 @@ const unordered_map<string,int> precedence={
 	{"+",1},
 	{"*",2},
 	{"(-)",3},
+	{"(1/)",3},
 	{"^",4},
 };
 const unordered_map<string,bool> rightassoc={
@@ -159,10 +160,12 @@ const unordered_map<string,bool> rightassoc={
 	{"+",false},
 	{"*",false},
 	{"(-)",true},
+	{"(1/)",true},
 	{"^",true},
 };
 const unordered_map<string,int> arity={
 	{"(-)",1},
+	{"(1/)",1},
 	{"+",2},
 	{"*",2},
 	{"^",2},
@@ -185,6 +188,8 @@ void popOperator(vector<ASTNode*> &nodelist,vector<string> &opstack){
 		newnode=new ASTNode(op=="+"?AT_SUM:AT_PRODUCT,children);
 	} else if(op=="(-)"){
 		newnode=new ASTNode(AT_NEGATIVE,children);
+	} else if(op=="(1/)"){
+		newnode=new ASTNode(AT_RECIPROCAL,children);
 	} else throw logic_error("popOperator on operator "+op);
 	nodelist.erase(nodelist.begin()+(nodelist.size()-ar),nodelist.end());
 	nodelist.push_back(newnode);
@@ -265,6 +270,9 @@ ASTNode* parse(const vector<Token> &tokens){
 				} else if(tokens[i].value=="-"){
 					pushOperator(nodelist,opstack,"+");
 					pushOperator(nodelist,opstack,"(-)");
+				} else if(tokens[i].value=="/"){
+					pushOperator(nodelist,opstack,"*");
+					pushOperator(nodelist,opstack,"(1/)");
 				} else {
 					pushOperator(nodelist,opstack,tokens[i].value);
 				}

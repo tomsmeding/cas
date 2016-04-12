@@ -19,16 +19,11 @@ int main(){
 				cout<<"Insane expression!"<<endl;
 				continue;
 			}
-			// cerr<<stringifyTree(node)<<endl;
+			cerr<<*node<<endl; // cerr<<stringifyTree(node)<<endl;
+			while(simplifyTree(node)){
+				cerr<<*node<<endl; // cerr<<stringifyTree(node)<<endl;
+			}
 			cleanupTree(node);
-			// cerr<<stringifyTree(node)<<endl;
-			bool simplifyChanged,cleanupChanged;
-			do {
-				simplifyChanged=simplifyTree(node);
-				// cerr<<stringifyTree(node)<<endl;
-				cleanupChanged=cleanupTree(node);
-				// cerr<<stringifyTree(node)<<endl;
-			} while(simplifyChanged||cleanupChanged);
 			cout<<stringifyTree(node)<<endl;
 		} catch(ParseError e){
 			cout<<"\x1B[31m"<<e.what()<<"\x1B[0m"<<endl;

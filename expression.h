@@ -8,8 +8,9 @@ using namespace std;
 //returns false if the expression is ill-formed
 bool saneTree(ASTNode *node);
 
-//return whether anything changed
-bool cleanupTree(ASTNode *node);
+void cleanupTree(ASTNode *node);
+
+//returns whether anything changed
 bool simplifyTree(ASTNode *node);
 
 string stringifyTree(ASTNode *node);
