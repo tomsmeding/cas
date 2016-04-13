@@ -147,46 +147,90 @@ void cleanupTree(ASTNode *node){
 }
 
 
+bool foldNumbers(ASTNode *node){
+	if(node->type!=AT_SUM&&node->type!=AT_PRODUCT)return false;
+	int nfound=0;
+	for(ASTNode *child : node->children){
+		nfound+=child->type==AT_NUMBER;
+	}
+	if(nfound>1){
+		long double number=node->type==AT_PRODUCT;
+		for(size_t i=0;i<node->children.size();i++){
+			ASTNode *child=node->children[i];
+			if(child->type==AT_NUMBER){
+				nfound++;
+				double v=strtold(child->value.data(),nullptr);
+				if(node->type==AT_SUM)number+=v;
+				else number*=v;
+				node->children.erase(node->children.begin()+i);
+				delete child;
+				i--;
+			}
+		}
+		node->children.push_back(new ASTNode(AT_NUMBER,convertstring(number)));
+		return true;
+	}
+	return false;
+}
+
+bool foldNegatives(ASTNode *node){
+	if(node->type!=AT_PRODUCT)return false;
+	int nfound=0;
+	for(ASTNode *child : node->children){
+		if(child->type==AT_NEGATIVE){
+			nfound++;
+			child->type=child->children[0]->type;
+			child->value=child->children[0]->value;
+			ASTNode *contents=child->children[0];
+			child->children=move(child->children[0]->children);
+			delete contents;
+		}
+	}
+	if(nfound%2==1){
+		ASTNode *prod=new ASTNode(AT_PRODUCT);
+		prod->children=move(node->children);
+		node->type=AT_NEGATIVE;
+		node->children=vector<ASTNode*>(1,prod);
+		return true;
+	}
+	return nfound>0;
+}
+
+//collapses recursive sums and products into one
+//SUM(SUM(1,2),3) -> SUM(1,2,3), and similarly for product
+bool collapseSums(ASTNode *node){
+	bool changed=false;
+	for(size_t i=0;i<node->children.size();i++){
+		ASTNode *child=node->children[i];
+		if(child->type==node->type){
+			node->children.erase(node->children.begin()+i);
+			node->children.insert(
+				node->children.end(),
+				child->children.begin(),
+				child->children.end()
+			);
+			child->children.clear();
+			delete child;
+			changed=true;
+			i--;
+		}
+	}
+	return changed;
+}
+
 bool simplifyTree(ASTNode *node){
 	bool changed=false;
 	switch(node->type){
 		case AT_SUM:
 		case AT_PRODUCT:{
-			int nfound=0;
-			for(size_t i=0;i<node->children.size();i++){
-				ASTNode *child=node->children[i];
+			for(ASTNode *child : node->children){
 				changed=simplifyTree(child)||changed;
-				if(child->type==AT_NUMBER)nfound++;
-				else if(child->type==node->type){
-					node->children.erase(node->children.begin()+i);
-					node->children.insert(
-						node->children.end(),
-						child->children.begin(),
-						child->children.end()
-					);
-					child->children.clear();
-					delete child;
-					changed=true;
-					i--;
-				}
 			}
-			if(nfound>1){
-				long double number=node->type==AT_PRODUCT;
-				for(size_t i=0;i<node->children.size();i++){
-					ASTNode *child=node->children[i];
-					if(child->type==AT_NUMBER){
-						nfound++;
-						double v=strtold(child->value.data(),nullptr);
-						// cerr<<"adding "<<v<<endl;
-						if(node->type==AT_SUM)number+=v;
-						else number*=v;
-						node->children.erase(node->children.begin()+i);
-						delete child;
-						i--;
-					}
-				}
-				node->children.push_back(new ASTNode(AT_NUMBER,convertstring(number)));
-				changed=true;
+			changed=collapseSums(node)||changed;
+			changed=foldNumbers(node)||changed;
+			if(foldNegatives(node)){
+				simplifyTree(node);
+				return true;
 			}
 			if(node->children.size()==1){
 				ASTNode *child=node->children[0];
