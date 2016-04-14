@@ -31,7 +31,20 @@ public:
 	ASTNode(asttype_t type,const vector<ASTNode*> &children);
 	ASTNode(asttype_t type,const string &value);
 	ASTNode(asttype_t type,const vector<ASTNode*> &children,const string &value);
+	explicit ASTNode(const ASTNode &other);
 	~ASTNode();
 };
 
 ostream& operator<<(ostream &os,const ASTNode &node);
+
+bool operator==(const ASTNode &a,const ASTNode &b);
+bool operator!=(const ASTNode &a,const ASTNode &b);
+
+bool operator<(const ASTNode &a,const ASTNode &b);
+
+namespace std {
+	template <>
+	struct less<ASTNode*>{
+		bool operator()(const ASTNode *a,const ASTNode *b) const;
+	};
+}

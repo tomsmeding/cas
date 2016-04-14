@@ -3,6 +3,7 @@
 #include "parser.h"
 #include "conversion.h"
 #include <sstream>
+#include <set>
 #include <utility> //move
 #include <errno.h>
 
@@ -49,77 +50,6 @@ bool saneTree(ASTNode *node){
 	}
 }
 
-const int asttypeorder[]={
-	6, //SUM
-	7, //PRODUCT
-	3, //VARIABLE
-	2, //NUMBER
-	1, //NEGATIVE
-	4, //RECIPROCAL
-	5, //APPLY
-};
-
-bool operator<(const ASTNode &a,const ASTNode &b){
-	if(a.type!=b.type){
-		return asttypeorder[a.type]<asttypeorder[b.type];
-	}
-	switch(a.type){
-		case AT_SUM:
-		case AT_PRODUCT:
-			return a.children.size()<b.children.size();
-
-		case AT_VARIABLE:
-			if(a.value.size()!=b.value.size()){
-				return a.value.size()<b.value.size();
-			}
-			return a.value<b.value;
-
-		case AT_NUMBER:
-			return strtold(a.value.data(),nullptr)<strtold(b.value.data(),nullptr);
-
-		case AT_NEGATIVE:
-		case AT_RECIPROCAL:
-			return *a.children[0]<*b.children[0];
-
-		case AT_APPLY:
-			return a.value<b.value; //or something
-
-		default:
-			return false; //equal?
-	}
-}
-
-bool operator==(const ASTNode &a,const ASTNode &b){
-	if(a.type!=b.type)return false;
-	if(a.value!=b.value)return false;
-	if(a.children.size()!=b.children.size())return false;
-	size_t i,j;
-	//a \subseteq b
-	for(i=0;i<a.children.size();i++){
-		for(j=0;j<b.children.size();j++){
-			if(*a.children[i]==*b.children[i])break;
-		}
-		if(j==b.children.size())return false;
-	}
-	//b \subseteq a
-	for(i=0;i<b.children.size();i++){
-		for(j=0;j<a.children.size();j++){
-			if(*a.children[i]==*b.children[i])break;
-		}
-		if(j==b.children.size())return false;
-	}
-	return true;
-}
-
-namespace std {
-	template <>
-	struct less<ASTNode*>{
-		bool operator()(const ASTNode *a,const ASTNode *b) const {
-			return *a<*b;
-		}
-	};
-}
-
 void cleanupTree(ASTNode *node){
 	switch(node->type){
 		case AT_SUM:
@@ -159,7 +89,7 @@ bool foldNumbers(ASTNode *node){
 			ASTNode *child=node->children[i];
 			if(child->type==AT_NUMBER){
 				nfound++;
-				double v=strtold(child->value.data(),nullptr);
+				long double v=strtold(child->value.data(),nullptr);
 				if(node->type==AT_SUM)number+=v;
 				else number*=v;
 				node->children.erase(node->children.begin()+i);
@@ -167,7 +97,9 @@ bool foldNumbers(ASTNode *node){
 				i--;
 			}
 		}
-		node->children.push_back(new ASTNode(AT_NUMBER,convertstring(number)));
+		if((node->type==AT_SUM&&number!=0)||(node->type==AT_PRODUCT&&number!=1)){
+			node->children.push_back(new ASTNode(AT_NUMBER,convertstring(number)));
+		}
 		return true;
 	}
 	return false;
@@ -199,6 +131,7 @@ bool foldNegatives(ASTNode *node){
 //collapses recursive sums and products into one
 //SUM(SUM(1,2),3) -> SUM(1,2,3), and similarly for product
 bool collapseSums(ASTNode *node){
+	if(node->type!=AT_SUM&&node->type!=AT_PRODUCT)return false;
 	bool changed=false;
 	for(size_t i=0;i<node->children.size();i++){
 		ASTNode *child=node->children[i];
@@ -218,19 +151,200 @@ bool collapseSums(ASTNode *node){
 	return changed;
 }
 
+bool foldReciprocals(ASTNode *node){
+	if(node->type!=AT_PRODUCT)return false;
+	int nfound=0;
+	for(ASTNode *child : node->children){
+		if(child->type==AT_RECIPROCAL){
+			nfound++;
+			if(nfound==2)break;
+		}
+	}
+	if(nfound<2)return false;
+	ASTNode *prod=new ASTNode(AT_PRODUCT);
+	ASTNode *recip=new ASTNode(AT_RECIPROCAL,vector<ASTNode*>(1,prod));
+	for(size_t i=0;i<node->children.size();i++){
+		ASTNode *child=node->children[i];
+		if(child->type!=AT_RECIPROCAL)continue;
+		prod->children.insert(prod->children.end(),child->children.begin(),child->children.end());
+		child->children.clear();
+		node->children.erase(node->children.begin()+i);
+		delete child;
+		i--;
+	}
+	collapseSums(prod);
+	node->children.push_back(recip);
+	return true;
+}
+
+bool productContains(ASTNode *prod,ASTNode *target){
+	if(prod->type!=AT_PRODUCT)throw TraceException("First argument to productContains not a product");
+	for(ASTNode *child : prod->children){
+		if(*child==*target)return true;
+	}
+	return false;
+}
+
+ASTNode* makeProductWithoutSubject(ASTNode *prod,ASTNode *subject){
+	ASTNode *prodcopy=new ASTNode(*prod);
+	for(size_t i=0;i<prodcopy->children.size();i++){
+		ASTNode *factor=prodcopy->children[i];
+		if(*factor!=*subject)continue;
+		prodcopy->children.erase(prodcopy->children.begin()+i);
+		break;
+	}
+	return prodcopy;
+}
+
+//returns (sum of terms collected as multiplier of subject, terms of the sum that should be deleted
+//if this multiplier * subject is added to the expression itself; are in order of sum)
+pair<ASTNode*,vector<ASTNode*>> multiplicitySum(ASTNode *sum,ASTNode *subject){
+	if(sum->type!=AT_SUM)throw TraceException("First argument to multiplicitySum not a sum");
+	//cerr<<"Collecting multiplier for "<<*subject<<" in "<<*sum<<endl;
+	ASTNode *result=new ASTNode(AT_SUM);
+	vector<ASTNode*> delnodes;
+	for(size_t i=0;i<sum->children.size();i++){
+		ASTNode *term=sum->children[i];
+		if(*term==*subject){
+			result->children.push_back(new ASTNode(AT_NUMBER,"1"));
+			delnodes.push_back(term);
+		} else if(term->type==AT_PRODUCT&&productContains(term,subject)){
+			result->children.push_back(makeProductWithoutSubject(term,subject));
+			delnodes.push_back(term);
+		} else if(term->type==AT_NEGATIVE){
+			ASTNode *negnode=term->children[0];
+			if(*negnode==*subject){
+				result->children.push_back(new ASTNode(AT_NUMBER,"-1"));
+				delnodes.push_back(term);
+			} else if(negnode->type==AT_PRODUCT&&productContains(negnode,subject)){
+				result->children.push_back(
+					new ASTNode(AT_NEGATIVE,vector<ASTNode*>(1,makeProductWithoutSubject(negnode,subject)))
+				);
+				delnodes.push_back(term);
+			}
+		}
+	}
+	//cerr<<"Result: "<<*result<<endl;
+	//cerr<<"Terms deleted: "<<endl;
+	//for(ASTNode *n : delnodes)cerr<<"deleted: "<<*n<<endl;
+	return make_pair(result,delnodes);
+}
+
+bool foldSimilarTermsSum(ASTNode *node){
+	if(node->type!=AT_SUM)return false;
+	//cerr<<__func__<<" on node "<<*node<<endl;
+	bool changed=false;
+	set<string> variables;
+	for(size_t i=0;i<node->children.size();i++){
+		ASTNode *child=node->children[i];
+		if(child->type==AT_VARIABLE)variables.insert(child->value);
+		else if(child->type==AT_PRODUCT){
+			for(size_t j=0;j<child->children.size();j++){
+				ASTNode *child2=child->children[j];
+				if(child2->type==AT_VARIABLE)variables.insert(child2->value);
+				else if(child->type==AT_NEGATIVE&&child->children[0]->type==AT_VARIABLE){
+					variables.insert(child->children[0]->value);
+				}
+			}
+		} else if(child->type==AT_NEGATIVE&&child->children[0]->type==AT_VARIABLE){
+			variables.insert(child->children[0]->value);
+		}
+	}
+	for(string varname : variables){
+		ASTNode *varnode=new ASTNode(AT_VARIABLE,varname);
+		pair<ASTNode*,vector<ASTNode*>> msump=multiplicitySum(node,varnode);
+		ASTNode *msum=msump.first;
+		vector<ASTNode*> &delnodes=msump.second;
+		simplifyTree(msum);
+		if(msum->type==AT_SUM|| //should be a single term to be worth simplifying
+		   delnodes.size()==1){ //apparently no other nodes folded
+			delete varnode;
+			continue;
+		}
+		size_t dnidx=0;
+		for(size_t i=0;i<node->children.size()&&dnidx<delnodes.size();i++){
+			ASTNode *child=node->children[i];
+			if(child==delnodes[dnidx]){
+				node->children.erase(node->children.begin()+i);
+				delete child;
+				i--;
+				dnidx++;
+			}
+		}
+		ASTNode *newprod=new ASTNode(AT_PRODUCT,vector<ASTNode*>{msum,varnode});
+		simplifyTree(newprod);
+		node->children.push_back(newprod);
+		changed=true;
+	}
+	//cerr<<"Result: "<<*node<<endl;
+	return changed;
+}
+
+bool foldSimilarTerms(ASTNode *node){
+	bool changed=false;
+	changed=foldSimilarTermsSum(node)||changed;
+	//changed=foldSimilarTermsProduct(ASTNode *node)||changed;
+	return changed;
+}
+
+bool removeTrivialTerms(ASTNode *node){
+	if(node->type!=AT_SUM&&node->type!=AT_PRODUCT)return false;
+	bool changed=false;
+	for(size_t i=0;i<node->children.size();i++){
+		ASTNode *child=node->children[i];
+		if(child->type!=AT_NUMBER)continue;
+		long double v=strtold(child->value.data(),nullptr);
+		if((node->type==AT_SUM&&v==0)||
+		   (node->type==AT_PRODUCT&&v==1)){
+			node->children.erase(node->children.begin()+i);
+			delete child;
+			i--;
+			changed=true;
+		} else if(node->type==AT_PRODUCT&&v==0){
+			for(ASTNode *child : node->children){
+				delete child;
+			}
+			node->children.clear();
+			node->type=AT_NUMBER;
+			node->value="0";
+			return true;
+		} else if(node->type==AT_PRODUCT&&v==-1){
+			node->children.erase(node->children.begin()+i);
+			delete child;
+			ASTNode *newprod=new ASTNode(AT_PRODUCT);
+			newprod->children=move(node->children);
+			node->type=AT_NEGATIVE;
+			node->children.push_back(newprod);
+			return true;
+		}
+	}
+	return changed;
+}
+
 bool simplifyTree(ASTNode *node){
 	bool changed=false;
+	//cerr<<"simplifyTree on "<<*node<<endl;
 	switch(node->type){
 		case AT_SUM:
 		case AT_PRODUCT:{
-			for(ASTNode *child : node->children){
-				changed=simplifyTree(child)||changed;
-			}
-			changed=collapseSums(node)||changed;
-			changed=foldNumbers(node)||changed;
-			if(foldNegatives(node)){
-				simplifyTree(node);
-				return true;
+			while(true){
+				//cerr<<"Entering loop, expr -> "<<stringifyTree(node)<<endl;
+				for(ASTNode *child : node->children){
+					changed=simplifyTree(child)||changed;
+				}
+				if(collapseSums(node)){changed=true; continue;}
+				if(foldNumbers(node)){changed=true; continue;}
+				if(foldNegatives(node)){ //can change node type
+					simplifyTree(node);
+					return true;
+				}
+				if(foldReciprocals(node)){changed=true; continue;}
+				if(foldSimilarTerms(node)){changed=true; continue;}
+				if(removeTrivialTerms(node)){ //can change node type
+					simplifyTree(node);
+					return true;
+				}
+				break;
 			}
 			if(node->children.size()==1){
 				ASTNode *child=node->children[0];
@@ -238,6 +352,17 @@ bool simplifyTree(ASTNode *node){
 				node->value=move(child->value);
 				node->children=move(child->children);
 				delete child;
+				changed=true;
+				break;
+			}
+			if(node->children.size()==0){
+				//cerr<<"############"<<endl;
+				//cerr<<*node<<endl;
+				node->value=convertstring((long double)(node->type==AT_SUM?0:1));
+				node->type=AT_NUMBER;
+				node->children.clear();
+				//cerr<<*node<<endl;
+				//cerr<<"############"<<endl;
 				changed=true;
 				break;
 			}
