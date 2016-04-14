@@ -613,13 +613,13 @@ void stringifyTree(ASTNode *node,stringstream &ss){
 		case AT_SUM:
 		case AT_PRODUCT:
 			if(node->children.size()==0)break;
-			ss<<'(';
+			ss<<'{';
 			stringifyTree(node->children[0],ss);
 			for(size_t i=1;i<node->children.size();i++){
-				ss<<(node->type==AT_SUM?" + ":"*");
+				ss<<(node->type==AT_SUM?" + ":" \\cdot ");
 				stringifyTree(node->children[i],ss);
 			}
-			ss<<')';
+			ss<<'}';
 			break;
 
 		case AT_VARIABLE:
@@ -636,23 +636,38 @@ void stringifyTree(ASTNode *node,stringstream &ss){
 			break;
 
 		case AT_RECIPROCAL:
-			ss<<"1/(";
+			ss<<"\\frac1{";
 			stringifyTree(node->children[0],ss);
-			ss<<')';
+			ss<<'}';
 			break;
 
 		case AT_APPLY:
-			ss<<node->value<<'(';
-			if(node->children.size()==0){
-				ss<<')';
-				break;
+			if(node->value=="pow"){
+				ss<<'{';
+				stringifyTree(node->children[0],ss);
+				ss<<"}^{";
+				stringifyTree(node->children[1],ss);
+				ss<<'}';
+			} else if(node->value=="exp"){
+				ss<<"e^{";
+				stringifyTree(node->children[0],ss);
+				ss<<'}';
+			} else if(node->value=="sqrt"){
+				ss<<"\\sqrt{";
+				stringifyTree(node->children[0],ss);
+				ss<<'}';
+			} else {
+				ss<<"\\mathrm{"<<node->value<<"}(";
+				if(node->children.size()==0)ss<<')';
+				else {
+					stringifyTree(node->children[0],ss);
+					for(size_t i=1;i<node->children.size();i++){
+						ss<<',';
+						stringifyTree(node->children[i],ss);
+					}
+					ss<<')';
+				}
 			}
-			stringifyTree(node->children[0],ss);
-			for(size_t i=1;i<node->children.size();i++){
-				ss<<',';
-				stringifyTree(node->children[i],ss);
-			}
-			ss<<')';
 			break;
 
 		default:
