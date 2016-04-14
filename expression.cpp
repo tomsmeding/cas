@@ -58,11 +58,81 @@ ASTNode* derivative(ASTNode *node,string var){
 			return new ASTNode(AT_NEGATIVE,vector<ASTNode*>(1,prod));
 		}
 
-		case AT_APPLY:
-			res=new ASTNode(*node);
-			res->value+="'";
-			res->children.push_back(new ASTNode(AT_VARIABLE,var));
-			return res;
+		case AT_APPLY:{
+			ASTNode *a1=node->children.size()<1?nullptr:node->children[0];
+			ASTNode *a2=node->children.size()<2?nullptr:node->children[1];
+			if(node->value=="sin"){
+				return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+					new ASTNode(AT_APPLY,"cos",vector<ASTNode*>(1,new ASTNode(*a1))),
+					derivative(a1,var)
+				});
+			} else if(node->value=="cos"){
+				return new ASTNode(AT_NEGATIVE,vector<ASTNode*>(1,
+					new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+						new ASTNode(AT_APPLY,"sin",vector<ASTNode*>(1,new ASTNode(*a1))),
+						derivative(a1,var)
+					})
+				));
+			} else if(node->value=="tan"){
+				return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+					new ASTNode(AT_RECIPROCAL,vector<ASTNode*>(1,
+						new ASTNode(AT_APPLY,"pow",vector<ASTNode*>{
+							new ASTNode(AT_APPLY,"cos",vector<ASTNode*>(1,new ASTNode(*a1))),
+							new ASTNode(AT_NUMBER,"2")
+						})
+					)),
+					derivative(a1,var)
+				});
+			} else if(node->value=="asin"||node->value=="arcsin"||
+				      node->value=="acos"||node->value=="arccos"){
+				res=new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+					new ASTNode(AT_RECIPROCAL,vector<ASTNode*>(1,
+						new ASTNode(AT_APPLY,"sqrt",vector<ASTNode*>(1,
+							new ASTNode(AT_SUM,vector<ASTNode*>{
+								new ASTNode(AT_NUMBER,"1"),
+								new ASTNode(AT_NEGATIVE,vector<ASTNode*>(1,
+									new ASTNode(AT_APPLY,"pow",vector<ASTNode*>{
+										new ASTNode(*a1),
+										new ASTNode(AT_NUMBER,"2")
+									})
+								))
+							})
+						))
+					)),
+					derivative(a1,var)
+				});
+				if(node->value=="asin"||node->value=="arcsin")return res;
+				else return new ASTNode(AT_NEGATIVE,vector<ASTNode*>(1,res));
+			} else if(node->value=="atan"||node->value=="arctan"){
+				return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+					new ASTNode(AT_RECIPROCAL,vector<ASTNode*>(1,
+						new ASTNode(AT_SUM,vector<ASTNode*>{
+							new ASTNode(AT_NUMBER,"1"),
+							new ASTNode(AT_APPLY,"pow",vector<ASTNode*>{
+								new ASTNode(*a1),
+								new ASTNode(AT_NUMBER,"2")
+							})
+						})
+					)),
+					derivative(a1,var)
+				});
+			} else if(node->value=="sqrt"){
+				return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+					new ASTNode(AT_RECIPROCAL,vector<ASTNode*>(1,
+						new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+							new ASTNode(AT_NUMBER,"2"),
+							new ASTNode(*a1)
+						})
+					)),
+					derivative(a1,var)
+				});
+			} else if(node->value=="exp"){
+				return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+					new ASTNode(*node),
+					derivative(a1,var)
+				});
+			} else throw ParseError("Cannot compute derivative of function "+node->value);
+		}
 
 		default:
 			throw TraceException("Unexpected node type "+to_string(node->type)+" in treefunc d()");
@@ -95,13 +165,6 @@ const unordered_map<string,function<ASTNode*(vector<ASTNode*>)>> treefunctions={
 	{"d",[](vector<ASTNode*> x){NARGS("d",2);
 		if(x[1]->type!=AT_VARIABLE)throw ParseError("Second argument to d() must be a variable");
 		return derivative(x[0],x[1]->value);
-	}},
-	{"sin'",[](vector<ASTNode*> x){NARGS("sin'",2);
-		if(x[1]->type!=AT_VARIABLE)throw ParseError("Second argument to sin'() must be a variable");
-		return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
-			new ASTNode(AT_APPLY,"cos",vector<ASTNode*>(1,new ASTNode(*x[0]))),
-			derivative(x[0],x[1]->value)
-		});
 	}},
 };
 #undef NARGS
