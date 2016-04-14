@@ -18,9 +18,5 @@ public:
 };
 
 
-extern const unordered_map<string,function<long double(vector<long double>)>> functions;
-extern const unordered_map<string,long double> constants;
-
-
 ASTNode* parseExpression(const string &expr);
 

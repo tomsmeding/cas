@@ -14,3 +14,8 @@ void cleanupTree(ASTNode *node);
 bool simplifyTree(ASTNode *node);
 
 string stringifyTree(ASTNode *node);
+
+
+extern const unordered_map<string,function<long double(vector<long double>)>> functions;
+extern const unordered_map<string,function<ASTNode*(vector<ASTNode*>)>> treefunctions;
+extern const unordered_map<string,long double> constants;

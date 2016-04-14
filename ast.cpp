@@ -22,7 +22,7 @@ ASTNode::ASTNode(asttype_t type,const vector<ASTNode*> &children)
 ASTNode::ASTNode(asttype_t type,const string &value)
 	:type(type),value(value){}
 
-ASTNode::ASTNode(asttype_t type,const vector<ASTNode*> &children,const string &value)
+ASTNode::ASTNode(asttype_t type,const string &value,const vector<ASTNode*> &children)
 	:type(type),children(children),value(value){}
 
 ASTNode::ASTNode(const ASTNode &other)

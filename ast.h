@@ -30,7 +30,7 @@ public:
 	ASTNode(asttype_t type);
 	ASTNode(asttype_t type,const vector<ASTNode*> &children);
 	ASTNode(asttype_t type,const string &value);
-	ASTNode(asttype_t type,const vector<ASTNode*> &children,const string &value);
+	ASTNode(asttype_t type,const string &value,const vector<ASTNode*> &children);
 	explicit ASTNode(const ASTNode &other);
 	~ASTNode();
 };

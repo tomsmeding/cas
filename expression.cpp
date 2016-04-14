@@ -9,6 +9,108 @@
 
 using namespace std;
 
+//returns new tree, not yet simplified
+ASTNode* derivative(ASTNode *node,string var){
+	ASTNode *res;
+	switch(node->type){
+		case AT_SUM:
+			res=new ASTNode(AT_SUM);
+			res->children.reserve(node->children.size());
+			for(ASTNode *child : node->children){
+				res->children.push_back(derivative(child,var));
+			}
+			return res;
+
+		case AT_PRODUCT:
+			res=new ASTNode(AT_SUM);
+			res->children.reserve(node->children.size());
+			for(size_t i=0;i<node->children.size();i++){
+				ASTNode *prod=new ASTNode(AT_PRODUCT);
+				prod->children.reserve(node->children.size());
+				for(size_t j=0;j<node->children.size();j++){
+					if(j==i)prod->children.push_back(derivative(node->children[j],var));
+					else prod->children.push_back(new ASTNode(*node->children[j]));
+				}
+				res->children.push_back(prod);
+			}
+			return res;
+
+		case AT_VARIABLE:
+			return new ASTNode(AT_NUMBER,node->value==var?"1":"0");
+
+		case AT_NUMBER:
+			return new ASTNode(AT_NUMBER,"0");
+
+		case AT_NEGATIVE:
+			return new ASTNode(AT_NEGATIVE,vector<ASTNode*>(1,derivative(node->children[0],var)));
+
+		case AT_RECIPROCAL:{
+			ASTNode *numerator=derivative(node->children[0],var);
+			ASTNode *denominator=new ASTNode(
+				AT_APPLY,
+				"pow",
+				vector<ASTNode*>{new ASTNode(*node->children[0]),new ASTNode(AT_NUMBER,"2")}
+			);
+			ASTNode *prod=new ASTNode(
+				AT_PRODUCT,
+				vector<ASTNode*>{numerator,new ASTNode(AT_RECIPROCAL,vector<ASTNode*>(1,denominator))}
+			);
+			return new ASTNode(AT_NEGATIVE,vector<ASTNode*>(1,prod));
+		}
+
+		case AT_APPLY:
+			res=new ASTNode(*node);
+			res->value+="'";
+			res->children.push_back(new ASTNode(AT_VARIABLE,var));
+			return res;
+
+		default:
+			throw TraceException("Unexpected node type "+to_string(node->type)+" in treefunc d()");
+	}
+}
+
+
+#define NARGS(f,n) do {if(x.size()!=(n))throw ParseError(f " expects " #n "arguments");} while(0)
+const unordered_map<string,function<long double(vector<long double>)>> functions={
+	{"sin",   [](vector<long double> x){NARGS("sin",   1); return sin(x[0]);  }},
+	{"cos",   [](vector<long double> x){NARGS("cos",   1); return cos(x[0]);  }},
+	{"tan",   [](vector<long double> x){NARGS("tan",   1); return tan(x[0]);  }},
+	{"asin",  [](vector<long double> x){NARGS("asin",  1); return asin(x[0]); }},
+	{"acos",  [](vector<long double> x){NARGS("acos",  1); return acos(x[0]); }},
+	{"atan",  [](vector<long double> x){NARGS("atan",  1); return atan(x[0]); }},
+	{"arcsin",[](vector<long double> x){NARGS("arcsin",1); return asin(x[0]); }},
+	{"arccos",[](vector<long double> x){NARGS("arccos",1); return acos(x[0]); }},
+	{"arctan",[](vector<long double> x){NARGS("arctan",1); return atan(x[0]); }},
+	{"sqrt",  [](vector<long double> x){NARGS("sqrt",  1); return sqrt(x[0]); }},
+	{"exp",   [](vector<long double> x){NARGS("exp",   1); return exp(x[0]);  }},
+	{"log",   [](vector<long double> x){NARGS("log",   1); return log(x[0]);  }},
+	{"ln",    [](vector<long double> x){NARGS("ln",    1); return log(x[0]);  }},
+	{"log10", [](vector<long double> x){NARGS("log10", 1); return log10(x[0]);}},
+	{"log2",  [](vector<long double> x){NARGS("log2",  1); return log2(x[0]); }},
+
+	{"pow",   [](vector<long double> x){NARGS("pow",   2); return pow(x[0],x[1]);     }},
+	{"logb",  [](vector<long double> x){NARGS("logb",  2); return log(x[0])/log(x[1]);}},
+};
+const unordered_map<string,function<ASTNode*(vector<ASTNode*>)>> treefunctions={
+	{"d",[](vector<ASTNode*> x){NARGS("d",2);
+		if(x[1]->type!=AT_VARIABLE)throw ParseError("Second argument to d() must be a variable");
+		return derivative(x[0],x[1]->value);
+	}},
+	{"sin'",[](vector<ASTNode*> x){NARGS("sin'",2);
+		if(x[1]->type!=AT_VARIABLE)throw ParseError("Second argument to sin'() must be a variable");
+		return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+			new ASTNode(AT_APPLY,"cos",vector<ASTNode*>(1,new ASTNode(*x[0]))),
+			derivative(x[0],x[1]->value)
+		});
+	}},
+};
+#undef NARGS
+const unordered_map<string,long double> constants={
+	{"PI",M_PI},
+	{"E",M_E},
+	{"PHI",(1+sqrt(5))/2},
+};
+
 bool saneTree(ASTNode *node){
 	if(node==nullptr)return false; //wat
 	switch(node->type){
@@ -401,14 +503,15 @@ bool simplifyTree(ASTNode *node){
 				changed=simplifyTree(child)||changed;
 				if(child->type!=AT_NUMBER)allnumber=false;
 			}
-			if(allnumber){
-				vector<long double> values;
-				values.reserve(node->children.size());
-				for(ASTNode *child : node->children){
-					values.push_back(strtold(child->value.data(),nullptr));
-				}
-				try {
-					long double res=functions.at(node->value)(values);
+			auto it=functions.find(node->value);
+			if(it!=functions.end()){
+				if(allnumber){
+					vector<long double> values;
+					values.reserve(node->children.size());
+					for(ASTNode *child : node->children){
+						values.push_back(strtold(child->value.data(),nullptr));
+					}
+					long double res=it->second(values);
 					node->type=AT_NUMBER;
 					for(ASTNode *child : node->children){
 						delete child;
@@ -416,12 +519,22 @@ bool simplifyTree(ASTNode *node){
 					node->children.clear();
 					node->value=convertstring(res);
 					changed=true;
-					break; //skips the tree functions below
-				} catch(out_of_range){
+				}
+			} else {
+				auto it=treefunctions.find(node->value);
+				if(it==treefunctions.end()){
 					throw ParseError("Unknown function "+node->value);
 				}
+				ASTNode *newsubtree=it->second(node->children);
+				for(ASTNode *child : node->children){
+					delete child;
+				}
+				node->children=move(newsubtree->children);
+				node->type=newsubtree->type;
+				node->value=move(newsubtree->value);
+				delete newsubtree;
+				changed=true;
 			}
-			//TODO: handle tree functions here (derivative etc.)
 			break;
 		}
 

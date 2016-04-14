@@ -1,4 +1,5 @@
 #include "parser.h"
+#include "expression.h"
 #include "traceexception.h"
 #include <iostream>
 #include <cstdlib>
@@ -7,34 +8,6 @@
 #include <errno.h>
 
 using namespace std;
-
-#define NARGS(f,n) do {if(x.size()!=(n))throw ParseError(f " expects " #n "arguments");} while(0)
-const unordered_map<string,function<long double(vector<long double>)>> functions={
-	{"sin",   [](vector<long double> x){NARGS("sin",   1); return sin(x[0]);  }},
-	{"cos",   [](vector<long double> x){NARGS("cos",   1); return cos(x[0]);  }},
-	{"tan",   [](vector<long double> x){NARGS("tan",   1); return tan(x[0]);  }},
-	{"asin",  [](vector<long double> x){NARGS("asin",  1); return asin(x[0]); }},
-	{"acos",  [](vector<long double> x){NARGS("acos",  1); return acos(x[0]); }},
-	{"atan",  [](vector<long double> x){NARGS("atan",  1); return atan(x[0]); }},
-	{"arcsin",[](vector<long double> x){NARGS("arcsin",1); return asin(x[0]); }},
-	{"arccos",[](vector<long double> x){NARGS("arccos",1); return acos(x[0]); }},
-	{"arctan",[](vector<long double> x){NARGS("arctan",1); return atan(x[0]); }},
-	{"sqrt",  [](vector<long double> x){NARGS("sqrt",  1); return sqrt(x[0]); }},
-	{"exp",   [](vector<long double> x){NARGS("exp",   1); return exp(x[0]);  }},
-	{"log",   [](vector<long double> x){NARGS("log",   1); return log(x[0]);  }},
-	{"ln",    [](vector<long double> x){NARGS("ln",    1); return log(x[0]);  }},
-	{"log10", [](vector<long double> x){NARGS("log10", 1); return log10(x[0]);}},
-	{"log2",  [](vector<long double> x){NARGS("log2",  1); return log2(x[0]); }},
-
-	{"pow",   [](vector<long double> x){NARGS("pow",   2); return pow(x[0],x[1]);     }},
-	{"logb",  [](vector<long double> x){NARGS("logb",  2); return log(x[0])/log(x[1]);}},
-};
-#undef NARGS
-const unordered_map<string,long double> constants={
-	{"PI",M_PI},
-	{"E",M_E},
-	{"PHI",(1+sqrt(5))/2},
-};
 
 
 ParseError::ParseError(const string &s)
@@ -125,6 +98,16 @@ vector<Token> tokenise(const string &expr){
 					break;
 				}
 			}
+			if(!success)for(const auto &fn : treefunctions){
+				const string &name=fn.first;
+				if(expr.substr(i,name.size())==name){
+					tokens.emplace_back(TT_FUNCTION,expr.substr(i,name.size()));
+					i+=name.size()-1;
+					success=true;
+					lastwasop=true;
+					break;
+				}
+			}
 			if(!success)for(const auto &cn : constants){
 				const string &name=cn.first;
 				if(expr.substr(i,name.size())==name){
@@ -187,7 +170,7 @@ void popOperator(vector<ASTNode*> &nodelist,vector<string> &opstack){
 	vector<ASTNode*> children(nodelist.begin()+(nodelist.size()-ar),nodelist.end());
 	ASTNode *newnode;
 	if(op=="^"){
-		newnode=new ASTNode(AT_APPLY,children,"pow");
+		newnode=new ASTNode(AT_APPLY,"pow",children);
 	} else if(op=="+"||op=="*"){
 		newnode=new ASTNode(op=="+"?AT_SUM:AT_PRODUCT,children);
 	} else if(op=="(-)"){
