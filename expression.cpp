@@ -131,6 +131,23 @@ ASTNode* derivative(ASTNode *node,string var){
 					new ASTNode(*node),
 					derivative(a1,var)
 				});
+			} else if(node->value=="log"||node->value=="ln"){
+				return new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+					new ASTNode(AT_RECIPROCAL,vector<ASTNode*>(1,new ASTNode(*a1))),
+					derivative(a1,var)
+				});
+			} else if(node->value=="pow"){
+				ASTNode *exptree=new ASTNode(AT_APPLY,"exp",vector<ASTNode*>(1,
+					new ASTNode(AT_PRODUCT,vector<ASTNode*>{
+						new ASTNode(*a2),
+						new ASTNode(AT_APPLY,"log",vector<ASTNode*>(1,
+							new ASTNode(*a1)
+						))
+					})
+				));
+				res=derivative(exptree,var);
+				delete exptree;
+				return res;
 			} else throw ParseError("Cannot compute derivative of function "+node->value);
 		}
 
@@ -645,13 +662,13 @@ void stringifyTree(ASTNode *node,stringstream &ss){
 			if(node->value=="pow"){
 				ss<<'{';
 				stringifyTree(node->children[0],ss);
-				ss<<"}^{";
+				ss<<"}^{(";
 				stringifyTree(node->children[1],ss);
-				ss<<'}';
+				ss<<")}";
 			} else if(node->value=="exp"){
-				ss<<"e^{";
+				ss<<"E^{(";
 				stringifyTree(node->children[0],ss);
-				ss<<'}';
+				ss<<")}";
 			} else if(node->value=="sqrt"){
 				ss<<"\\sqrt{";
 				stringifyTree(node->children[0],ss);
